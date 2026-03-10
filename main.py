@@ -1,13 +1,20 @@
 import sys
 
-def parseExpressao():
+def parseExpressao(line: str) -> list[str]:
+    return line.strip().split()
+
+def openFile():
     argument = sys.argv[1]
+    tokens = []
     with open(argument) as file:
         for line in file:
-            print(line)
+            token = parseExpressao(line)
+            tokens.append(token)
+        return tokens
 
 if __name__ == "__main__":
-    parseExpressao()
+    tokens = openFile()
+    print(tokens)
 
 
 
