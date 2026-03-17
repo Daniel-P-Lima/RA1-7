@@ -11,6 +11,7 @@ class ContextoLexer:
     linha: str
     posicao: int = 0
     lexema: str = ""
+    tem_ponto: bool = False
 
 def ler_expressoes(caminho_arquivo: str) -> list[str]:
     expressoes = []
@@ -41,6 +42,11 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
         contexto.lexema = ""
         return estado_identificador
     
+    if caractere in "()":
+        tokens.append(Token("PARENTESES", caractere))
+        contexto.posicao += 1
+        return estado_inicial
+
     if caractere in "+-*/%^()":
         tokens.append(Token("OPERADOR", caractere))
         contexto.posicao += 1
@@ -53,12 +59,31 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
 
 
 def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
-    while contexto.posicao < len(contexto.linha) and contexto.linha[contexto.posicao].isdigit():
-        contexto.lexema += contexto.linha[contexto.posicao]
-        contexto.posicao += 1
+    while contexto.posicao < len(contexto.linha):
+        caractere = contexto.linha[contexto.posicao]
+        
+        if caractere.isdigit():
+            contexto.lexema += caractere
+            contexto.posicao += 1
+        elif caractere == ".":
+            if contexto.tem_ponto:
+                raise ValueError(
+                    f"Número inválido: mais de um ponto decimal na posição {contexto.posicao}"
+                )
+            contexto.tem_ponto = True
+            contexto.lexema += caractere
+            contexto.posicao += 1
+        else:
+            break
+
+    if contexto.lexema.endswith("."):
+        raise ValueError(
+            f"Número inválido terminado em ponto: '{contexto.lexema}'"
+        )
 
     tokens.append(Token("NUMERO", contexto.lexema))
     contexto.lexema = ""
+    contexto.tem_ponto = False
     return estado_inicial
 
 def estado_identificador(ctx: ContextoLexer, tokens: list[Token]):
