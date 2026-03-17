@@ -36,6 +36,7 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
 
     if caractere.isdigit():
         contexto.lexema = ""
+        contexto.tem_ponto = False
         return estado_numero
 
     if caractere.isalpha():
@@ -47,16 +48,12 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
         contexto.posicao += 1
         return estado_inicial
 
-    if caractere in "+-*/%^()":
-        tokens.append(Token("OPERADOR", caractere))
-        contexto.posicao += 1
-        return estado_inicial
-    
+    if caractere in "+-*/%^":
+        return estado_operador
+
     raise ValueError (
         f"Caractere inválido {caractere} na posição {contexto.posicao}"
     )
-
-
 
 def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
     while contexto.posicao < len(contexto.linha):
@@ -86,6 +83,25 @@ def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
     contexto.tem_ponto = False
     return estado_inicial
 
+
+def estado_operador(contexto: ContextoLexer, tokens: list[Token]):
+    caractere = contexto.linha[contexto.posicao]
+
+    if caractere == "/":
+        proxima_posicao = contexto.posicao + 1
+
+        if (
+            proxima_posicao < len(contexto.linha)
+            and contexto.linha[proxima_posicao] == "/"
+        ):
+            tokens.append(Token("OPERADOR", "//"))
+            contexto.posicao += 2
+            return estado_inicial
+
+    tokens.append(Token("OPERADOR", caractere))
+    contexto.posicao += 1
+    return estado_inicial
+
 def estado_identificador(ctx: ContextoLexer, tokens: list[Token]):
     while ctx.posicao < len(ctx.linha) and ctx.linha[ctx.posicao].isalpha():
         ctx.lexema += ctx.linha[ctx.posicao]
@@ -113,7 +129,7 @@ def main():
         expressoes = ler_expressoes(caminho_arquivo)
         for i, expressao in enumerate(expressoes, start=1):
             tokens = analisar_lexicamente(expressao)
-            print(f"Linha {i}: {tokens}")
+            print(f"Linha {i}: {tokens} \n")
 
     except FileNotFoundError:
         print(f"Erro: arquivo não encontrado: {caminho_arquivo}")
