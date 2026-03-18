@@ -122,6 +122,71 @@ def analisar_lexicamente(linha: str) -> list[Token]:
 
     return tokens
 
+def converter_numero(valor: str):
+    if "." in valor:
+        return float(valor)
+    return int(valor)
+
+def aplicar_operador(operador: str, esquerdo, direito):
+    if operador == "+":
+        return esquerdo + direito
+    if operador == "-":
+        return esquerdo - direito
+    if operador == "*":
+        return esquerdo * direito
+    if operador == "/":
+        return esquerdo / direito
+    if operador == "//":
+        return esquerdo // direito
+    if operador == "%":
+        return esquerdo % direito
+    if operador == "^":
+        return esquerdo ** direito
+
+    raise ValueError(f"Operador inválido: {operador}")
+
+def avaliar_rpn(tokens: list[Token]):
+    pilha = []
+
+    for token in tokens:
+        if token.tipo == "NUMERO":
+            pilha.append(converter_numero(token.valor))
+
+        elif token.tipo == "OPERADOR":
+            if len(pilha) < 2:
+                raise ValueError(
+                    f"Expressão RPN inválida: operador '{token.valor}' sem operandos suficientes"
+                )
+
+            direito = pilha.pop()
+            esquerdo = pilha.pop()
+
+            if token.valor in {"/", "//", "%"} and direito == 0:
+                raise ValueError("Divisão por zero")
+
+            resultado = aplicar_operador(token.valor, esquerdo, direito)
+            pilha.append(resultado)
+
+        elif token.tipo == "IDENTIFICADOR":
+            raise ValueError(
+                f"Identificador '{token.valor}' ainda não é suportado nesta etapa"
+            )
+
+        elif token.tipo == "PARENTESE":
+            raise ValueError(
+                f"Parêntese '{token.valor}' não é válido em expressão RPN aritmética"
+            )
+
+        else:
+            raise ValueError(f"Tipo de token desconhecido: {token.tipo}")
+
+    if len(pilha) != 1:
+        raise ValueError(
+            f"Expressão RPN inválida: sobraram {len(pilha)} valores na pilha"
+        )
+
+    return pilha[0]
+
 def main():
     caminho_arquivo = sys.argv[1]
 
@@ -129,7 +194,9 @@ def main():
         expressoes = ler_expressoes(caminho_arquivo)
         for i, expressao in enumerate(expressoes, start=1):
             tokens = analisar_lexicamente(expressao)
-            print(f"Linha {i}: {tokens} \n")
+            resultado = avaliar_rpn(tokens)
+
+            print(f"Linha {i}: {resultado} \n")
 
     except FileNotFoundError:
         print(f"Erro: arquivo não encontrado: {caminho_arquivo}")
