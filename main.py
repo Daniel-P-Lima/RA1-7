@@ -187,21 +187,31 @@ def avaliar_rpn(tokens: list[Token]):
 
     return pilha[0]
 
+
+def processar_expressao(expressao: str):
+    tokens = analisar_lexicamente(expressao)
+    resultado = avaliar_rpn(tokens)
+    return resultado
+
 def main():
+    if len(sys.argv) < 2:
+        print("Uso: python programa.py <arquivo.txt>")
+        sys.exit(1)
+
     caminho_arquivo = sys.argv[1]
 
     try:
         expressoes = ler_expressoes(caminho_arquivo)
-        for i, expressao in enumerate(expressoes, start=1):
-            tokens = analisar_lexicamente(expressao)
-            resultado = avaliar_rpn(tokens)
-
-            print(f"Linha {i}: {resultado} \n")
-
     except FileNotFoundError:
         print(f"Erro: arquivo não encontrado: {caminho_arquivo}")
         sys.exit(1)
 
+    for i, expressao in enumerate(expressoes, start=1):
+        try:
+            resultado = processar_expressao(expressao)
+            print(f"Linha {i}: {resultado}")
+        except ValueError as erro:
+            print(f"Linha {i}: ERRO -> {erro}")
 
 if __name__ == "__main__":
     main()
