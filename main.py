@@ -1,5 +1,7 @@
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Union
+
 
 @dataclass
 class Token:
@@ -12,6 +14,12 @@ class ContextoLexer:
     posicao: int = 0
     lexema: str = ""
     tem_ponto: bool = False
+
+@dataclass
+class EstadoPrograma:
+    memorias: dict[str, Union[int, float]] = field(default_factory=dict)
+    historico_resultados: list[Union[int, float, None]] = field(default_factory=list)
+
 
 def ler_expressoes(caminho_arquivo: str) -> list[str]:
     expressoes = []
@@ -26,7 +34,7 @@ def ler_expressoes(caminho_arquivo: str) -> list[str]:
     return expressoes
 
 def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
-    while contexto.posicao < len(contexto.linha) and contexto.linha[contexto.posicao].isspace():
+    while (contexto.posicao < len(contexto.linha) and contexto.linha[contexto.posicao].isspace()):
         contexto.posicao += 1
 
     if contexto.posicao >= len(contexto.linha):
@@ -39,34 +47,32 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
         contexto.tem_ponto = False
         return estado_numero
 
-    if caractere.isalpha():
+    if caractere.isupper():
         contexto.lexema = ""
         return estado_identificador
-    
+
     if caractere in "()":
-        tokens.append(Token("PARENTESES", caractere))
+        tokens.append(Token("PARENTESE", caractere))
         contexto.posicao += 1
         return estado_inicial
 
     if caractere in "+-*/%^":
         return estado_operador
 
-    raise ValueError (
-        f"Caractere inválido {caractere} na posição {contexto.posicao}"
-    )
+    raise ValueError(f"Caractere inválido '{caractere}' na posição {contexto.posicao}")
+
 
 def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
     while contexto.posicao < len(contexto.linha):
         caractere = contexto.linha[contexto.posicao]
-        
+
         if caractere.isdigit():
             contexto.lexema += caractere
             contexto.posicao += 1
         elif caractere == ".":
             if contexto.tem_ponto:
-                raise ValueError(
-                    f"Número inválido: mais de um ponto decimal na posição {contexto.posicao}"
-                )
+                raise ValueError(f"Número inválido: mais de um ponto decimal na posição {contexto.posicao}"                )
+
             contexto.tem_ponto = True
             contexto.lexema += caractere
             contexto.posicao += 1
@@ -102,13 +108,18 @@ def estado_operador(contexto: ContextoLexer, tokens: list[Token]):
     contexto.posicao += 1
     return estado_inicial
 
-def estado_identificador(ctx: ContextoLexer, tokens: list[Token]):
-    while ctx.posicao < len(ctx.linha) and ctx.linha[ctx.posicao].isalpha():
-        ctx.lexema += ctx.linha[ctx.posicao]
-        ctx.posicao += 1
 
-    tokens.append(Token("IDENTIFICADOR", ctx.lexema))
-    ctx.lexema = ""
+def estado_identificador(contexto: ContextoLexer, tokens: list[Token]):
+    while (contexto.posicao < len(contexto.linha) and contexto.linha[contexto.posicao].isupper()):
+        contexto.lexema += contexto.linha[contexto.posicao]
+        contexto.posicao += 1
+
+    if contexto.lexema == "RES":
+        tokens.append(Token("KEYWORD_RES", contexto.lexema))
+    else:
+        tokens.append(Token("MEMORIA", contexto.lexema))
+
+    contexto.lexema = ""
     return estado_inicial
 
 def analisar_lexicamente(linha: str) -> list[Token]:
@@ -145,10 +156,45 @@ def aplicar_operador(operador: str, esquerdo, direito):
 
     raise ValueError(f"Operador inválido: {operador}")
 
-def avaliar_rpn(tokens: list[Token]):
+def validar_indice_res(valor):
+    if isinstance(valor, float):
+        if not valor.is_integer():
+            raise ValueError("RES exige um inteiro não negativo")
+        valor = int(valor)
+
+    if not isinstance(valor, int):
+        raise ValueError("RES exige um inteiro não negativo")
+
+    if valor < 0:
+        raise ValueError("RES exige um inteiro não negativo")
+
+    if valor == 0:
+        raise ValueError("0 RES é inválido: a linha atual ainda não possui resultado")
+
+    return valor
+
+
+def resolver_res(n_linhas: int, historico_resultados: list[Union[int, float, None]]):
+    if n_linhas > len(historico_resultados):
+        raise ValueError(
+            f"RES inválido: não existem {n_linhas} linhas anteriores"
+        )
+
+    indice_alvo = len(historico_resultados) - n_linhas
+    resultado = historico_resultados[indice_alvo]
+
+    if resultado is None:
+        raise ValueError(
+            f"RES inválido: a linha referenciada ({indice_alvo + 1}) não possui resultado válido"
+        )
+
+    return resultado
+
+
+def avaliar_rpn(tokens: list[Token], memorias: dict[str, Union[int, float]], historico_resultados: list[Union[int, float, None]]):
     pilha = []
 
-    for token in tokens:
+    for indice, token in enumerate(tokens):
         if token.tipo == "NUMERO":
             pilha.append(converter_numero(token.valor))
 
@@ -167,10 +213,22 @@ def avaliar_rpn(tokens: list[Token]):
             resultado = aplicar_operador(token.valor, esquerdo, direito)
             pilha.append(resultado)
 
-        elif token.tipo == "IDENTIFICADOR":
-            raise ValueError(
-                f"Identificador '{token.valor}' ainda não é suportado nesta etapa"
-            )
+        elif token.tipo == "KEYWORD_RES":
+            if not pilha:
+                raise ValueError("RES exige um valor N antes da keyword")
+
+            n_linhas = validar_indice_res(pilha.pop())
+            resultado_anterior = resolver_res(n_linhas, historico_resultados)
+            pilha.append(resultado_anterior)
+
+        elif token.tipo == "MEMORIA":
+            nome_memoria = token.valor
+            eh_ultimo_token = indice == len(tokens) - 1
+
+            if eh_ultimo_token and pilha:
+                memorias[nome_memoria] = pilha[-1]
+            else:
+                pilha.append(memorias.get(nome_memoria, 0.0))
 
         elif token.tipo == "PARENTESE":
             raise ValueError(
@@ -188,9 +246,18 @@ def avaliar_rpn(tokens: list[Token]):
     return pilha[0]
 
 
-def processar_expressao(expressao: str):
+def processar_expressao(expressao: str, estado_programa: EstadoPrograma):
     tokens = analisar_lexicamente(expressao)
-    resultado = avaliar_rpn(tokens)
+
+    memorias_temporarias = estado_programa.memorias.copy()
+
+    resultado = avaliar_rpn(
+        tokens=tokens,
+        memorias=memorias_temporarias,
+        historico_resultados=estado_programa.historico_resultados,
+    )
+
+    estado_programa.memorias = memorias_temporarias
     return resultado
 
 def main():
@@ -206,14 +273,16 @@ def main():
         print(f"Erro: arquivo não encontrado: {caminho_arquivo}")
         sys.exit(1)
 
+    estado_programa = EstadoPrograma()
+
     for i, expressao in enumerate(expressoes, start=1):
         try:
-            resultado = processar_expressao(expressao)
+            resultado = processar_expressao(expressao, estado_programa)
+            estado_programa.historico_resultados.append(resultado)
             print(f"Linha {i}: {resultado}")
         except ValueError as erro:
+            estado_programa.historico_resultados.append(None)
             print(f"Linha {i}: ERRO -> {erro}")
 
 if __name__ == "__main__":
     main()
-
-
