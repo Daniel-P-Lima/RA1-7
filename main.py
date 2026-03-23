@@ -206,7 +206,7 @@ def estado_identificador(contexto: ContextoLexer, tokens: list[Token]):
     contexto.lexema = ""
     return estado_inicial
 
-def analisar_lexicamente(linha: str) -> list[Token]:
+def parseExpressao(linha: str) -> list[Token]:
     contexto = ContextoLexer(linha=linha)
     tokens = []
 
@@ -328,8 +328,8 @@ def avaliar_rpn(tokens: list[Token], memorias: dict[str, Union[int, float]], his
     return pilha[0]
 
 
-def processar_expressao(expressao: str, estado_programa: EstadoPrograma):
-    tokens = analisar_lexicamente(expressao)
+def executarExpressao(expressao: str, estado_programa: EstadoPrograma):
+    tokens = parseExpressao(expressao)
 
     memorias_temporarias = estado_programa.memorias.copy()
 
@@ -359,7 +359,7 @@ def main():
 
     for i, expressao in enumerate(expressoes, start=1):
         try:
-            resultado = processar_expressao(expressao, estado_programa)
+            resultado = executarExpressao(expressao, estado_programa)
             estado_programa.historico_resultados.append(resultado)
             print(f"Linha {i}: {resultado}")
         except ValueError as erro:
