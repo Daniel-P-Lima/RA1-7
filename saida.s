@@ -22,7 +22,7 @@ _start:
     SDIV r0, r0, r1
     VMOV s0, r0
     VCVT.F64.S32 d0, s0
-    VDIV.F64 d-1, d-1, d0
+    @ ERRO: operador '/' sem operandos suficientes (linha 2)
 
     @ --- Linha 3 ---
     LDR r0, =_c3_0
