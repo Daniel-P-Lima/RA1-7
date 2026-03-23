@@ -14,6 +14,7 @@ class ContextoLexer:
     posicao: int = 0
     lexema: str = ""
     tem_ponto: bool = False
+    quantidade_digitos: int = 0
 
 @dataclass
 class EstadoPrograma:
@@ -33,6 +34,74 @@ def ler_expressoes(caminho_arquivo: str) -> list[str]:
 
     return expressoes
 
+def tratar_parenteses(linha: str) -> str:
+    pilha_parenteses = []
+    resultado = []
+
+    for posicao, caractere in enumerate(linha):
+        if caractere == "(":
+            pilha_parenteses.append(posicao)
+            resultado.append(" ( ")
+        elif caractere == ")":
+            if not pilha_parenteses:
+                raise ValueError(f"Parêntese fechado sem abertura na posição {posicao}")
+            pilha_parenteses.pop()
+            resultado.append(" ) ")
+
+    if pilha_parenteses:
+        posicao_abertura = pilha_parenteses[-1]
+        raise ValueError(
+            f"Parêntese aberto sem fechamento na posição {posicao_abertura}"
+        )
+
+    linha_normalizada = "".join(resultado)
+    linha_normalizada = " ".join(linha_normalizada.split())
+    return linha_normalizada
+
+def caractere_anterior_permite_sinal(contexto: ContextoLexer) -> bool:
+    if contexto.posicao == 0:
+        return True
+
+    anterior = contexto.linha[contexto.posicao - 1]
+    return anterior.isspace() or anterior == "("
+
+
+def eh_inicio_decimal(contexto: ContextoLexer) -> bool:
+    if contexto.linha[contexto.posicao] != ".":
+        return False
+
+    proxima_posicao = contexto.posicao + 1
+    return (
+        proxima_posicao < len(contexto.linha)
+        and contexto.linha[proxima_posicao].isdigit()
+    )
+
+
+def eh_inicio_numero_negativo(contexto: ContextoLexer) -> bool:
+    if contexto.linha[contexto.posicao] != "-":
+        return False
+
+    if not caractere_anterior_permite_sinal(contexto):
+        return False
+
+    proxima_posicao = contexto.posicao + 1
+    if proxima_posicao >= len(contexto.linha):
+        return False
+
+    proximo = contexto.linha[proxima_posicao]
+
+    if proximo.isdigit():
+        return True
+
+    if proximo == ".":
+        proxima_proxima_posicao = contexto.posicao + 2
+        return (
+            proxima_proxima_posicao < len(contexto.linha)
+            and contexto.linha[proxima_proxima_posicao].isdigit()
+        )
+
+    return False
+
 def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
     while (contexto.posicao < len(contexto.linha) and contexto.linha[contexto.posicao].isspace()):
         contexto.posicao += 1
@@ -42,11 +111,18 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
 
     caractere = contexto.linha[contexto.posicao]
 
-    if caractere.isdigit():
+    if caractere.isdigit() or eh_inicio_decimal(contexto):
         contexto.lexema = ""
         contexto.tem_ponto = False
         return estado_numero
-
+   
+    if eh_inicio_numero_negativo(contexto):
+        contexto.lexema = "-"
+        contexto.tem_ponto = False
+        contexto.quantidade_digitos = 0
+        contexto.posicao += 1
+        return estado_numero
+   
     if caractere.isupper():
         contexto.lexema = ""
         return estado_identificador
@@ -61,23 +137,30 @@ def estado_inicial(contexto: ContextoLexer, tokens: list[Token]):
 
     raise ValueError(f"Caractere inválido '{caractere}' na posição {contexto.posicao}")
 
-
 def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
     while contexto.posicao < len(contexto.linha):
         caractere = contexto.linha[contexto.posicao]
 
         if caractere.isdigit():
             contexto.lexema += caractere
+            contexto.quantidade_digitos += 1
             contexto.posicao += 1
+
         elif caractere == ".":
             if contexto.tem_ponto:
-                raise ValueError(f"Número inválido: mais de um ponto decimal na posição {contexto.posicao}"                )
+                raise ValueError(
+                    f"Número inválido: mais de um ponto decimal na posição {contexto.posicao}"
+                )
 
             contexto.tem_ponto = True
             contexto.lexema += caractere
             contexto.posicao += 1
+
         else:
             break
+
+    if contexto.quantidade_digitos == 0:
+        raise ValueError(f"Número inválido: '{contexto.lexema}'")
 
     if contexto.lexema.endswith("."):
         raise ValueError(
@@ -87,6 +170,7 @@ def estado_numero(contexto: ContextoLexer, tokens: list[Token]):
     tokens.append(Token("NUMERO", contexto.lexema))
     contexto.lexema = ""
     contexto.tem_ponto = False
+    contexto.quantidade_digitos = 0
     return estado_inicial
 
 
@@ -231,9 +315,7 @@ def avaliar_rpn(tokens: list[Token], memorias: dict[str, Union[int, float]], his
                 pilha.append(memorias.get(nome_memoria, 0.0))
 
         elif token.tipo == "PARENTESE":
-            raise ValueError(
-                f"Parêntese '{token.valor}' não é válido em expressão RPN aritmética"
-            )
+            continue
 
         else:
             raise ValueError(f"Tipo de token desconhecido: {token.tipo}")
