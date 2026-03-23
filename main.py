@@ -22,19 +22,6 @@ class EstadoPrograma:
     memorias: dict[str, Union[int, float]] = field(default_factory=dict)
     historico_resultados: list[Union[int, float, None]] = field(default_factory=list)
 
-
-def ler_expressoes(caminho_arquivo: str) -> list[str]:
-    expressoes = []
-
-    with open(caminho_arquivo, "r") as arquivo:
-        for linha in arquivo:
-            linha = linha.strip()
-
-            if linha:
-                expressoes.append(linha) # array de strings 
-
-    return expressoes
-
 def tratar_parenteses(linha: str) -> str:
     pilha_parenteses = []
     resultado = []
@@ -344,22 +331,406 @@ def executarExpressao(expressao: str, estado_programa: EstadoPrograma):
     estado_programa.memorias = memorias_temporarias
     return resultado
 
+def lerArquivo(nome_arquivo: str, linhas: list) -> None:
+    try:
+        with open(nome_arquivo, "r") as arquivo:
+            for linha in arquivo:
+                linha = linha.strip()
+                if linha:
+                    linhas.append(linha)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Arquivo não encontrado: {nome_arquivo}")
+    except PermissionError:
+        raise PermissionError(f"Sem permissão para ler o arquivo: {nome_arquivo}")
+    except OSError as e:
+        raise OSError(f"Erro ao abrir o arquivo: {e}")
+
+
+def gerarAssembly(tokens: list[Token], codigo_assembly: list[str], indice_linha: int, secao_dados: list[str], memorias_labels: dict, resultados_labels: list) -> None:
+    sp = -1          # ponteiro virtual da pilha (índice do registrador d)
+    const_idx = [0]  # contador de constantes para gerar labels únicos
+    pow_idx = [0]    # contador de labels para loops de potenciação
+
+    def add_constante(valor: float) -> str:
+        label = f"_c{indice_linha}_{const_idx[0]}"
+        const_idx[0] += 1
+        secao_dados.append(f".align 8")
+        secao_dados.append(f"{label}: .double {valor:.17g}")
+        return label
+
+    tokens_efetivos = [t for t in tokens if t.tipo != "PARENTESE"]
+    codigo_assembly.append(f"    @ --- Linha {indice_linha} ---")
+
+    for i, token in enumerate(tokens_efetivos):
+        if token.tipo == "NUMERO":
+            sp += 1
+            label = add_constante(float(token.valor))
+            codigo_assembly.append(f"    LDR r0, ={label}")
+            codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+
+        elif token.tipo == "OPERADOR":
+            rhs = sp
+            lhs = sp - 1
+            sp -= 1
+            op = token.valor
+
+            if op == "+":
+                codigo_assembly.append(f"    VADD.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "-":
+                codigo_assembly.append(f"    VSUB.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "*":
+                codigo_assembly.append(f"    VMUL.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "/":
+                codigo_assembly.append(f"    VDIV.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "//":
+                # Divisão inteira com truncamento em direção a zero (comportamento C++)
+                codigo_assembly.extend([
+                    f"    VCVT.S32.F64 s0, d{lhs}",
+                    f"    VCVT.S32.F64 s2, d{rhs}",
+                    f"    VMOV r0, s0",
+                    f"    VMOV r1, s2",
+                    f"    SDIV r0, r0, r1",
+                    f"    VMOV s0, r0",
+                    f"    VCVT.F64.S32 d{lhs}, s0",
+                ])
+            elif op == "%":
+                # Resto com sinal do dividendo (comportamento C++)
+                codigo_assembly.extend([
+                    f"    VCVT.S32.F64 s0, d{lhs}",
+                    f"    VCVT.S32.F64 s2, d{rhs}",
+                    f"    VMOV r0, s0",
+                    f"    VMOV r1, s2",
+                    f"    SDIV r2, r0, r1",
+                    f"    MUL r2, r2, r1",
+                    f"    SUB r0, r0, r2",
+                    f"    VMOV s0, r0",
+                    f"    VCVT.F64.S32 d{lhs}, s0",
+                ])
+            elif op == "^":
+                # Potenciação via loop (assume expoente inteiro >= 0)
+                label_1 = add_constante(1.0)
+                lbl_loop = f"_pow_loop_{indice_linha}_{pow_idx[0]}"
+                lbl_done = f"_pow_done_{indice_linha}_{pow_idx[0]}"
+                pow_idx[0] += 1
+                codigo_assembly.extend([
+                    f"    @ Potenciacao: d{lhs} ^ d{rhs}",
+                    f"    VCVT.S32.F64 s4, d{rhs}",
+                    f"    VMOV r2, s4",
+                    f"    LDR r0, ={label_1}",
+                    f"    VLDR d{rhs}, [r0]",
+                    f"{lbl_loop}:",
+                    f"    CMP r2, #0",
+                    f"    BEQ {lbl_done}",
+                    f"    VMUL.F64 d{rhs}, d{rhs}, d{lhs}",
+                    f"    SUB r2, r2, #1",
+                    f"    B {lbl_loop}",
+                    f"{lbl_done}:",
+                    f"    VMOV.F64 d{lhs}, d{rhs}",
+                ])
+
+        elif token.tipo == "MEMORIA":
+            nome = token.valor
+            eh_ultimo = i == len(tokens_efetivos) - 1
+
+            if nome not in memorias_labels:
+                label = f"_mem_{nome}"
+                memorias_labels[nome] = label
+                secao_dados.append(f".align 8")
+                secao_dados.append(f"{label}: .double 0.0")
+
+            label = memorias_labels[nome]
+
+            if eh_ultimo and sp >= 0:
+                # Salvar em memória: (V MEM)
+                codigo_assembly.append(f"    @ Salvar em {nome}")
+                codigo_assembly.append(f"    LDR r0, ={label}")
+                codigo_assembly.append(f"    VSTR d{sp}, [r0]")
+            else:
+                # Carregar da memória: (MEM)
+                sp += 1
+                codigo_assembly.append(f"    @ Carregar {nome}")
+                codigo_assembly.append(f"    LDR r0, ={label}")
+                codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+
+        elif token.tipo == "KEYWORD_RES":
+            # N já foi empilhado pelo NUMERO anterior; substituímos pelo resultado histórico
+            n = int(float(tokens_efetivos[i - 1].valor))
+            idx_alvo = len(resultados_labels) - n
+            if 0 <= idx_alvo < len(resultados_labels):
+                label_res = resultados_labels[idx_alvo]
+                codigo_assembly.append(f"    @ RES {n}: resultado da linha {idx_alvo + 1}")
+                codigo_assembly.append(f"    LDR r0, ={label_res}")
+                codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+            else:
+                codigo_assembly.append(f"    @ ERRO: RES {n} fora do intervalo")
+
+    # Armazenar resultado da linha para uso futuro por RES
+    result_label = f"_result_{indice_linha}"
+    secao_dados.append(f".align 8")
+    secao_dados.append(f"{result_label}: .space 8")
+    resultados_labels.append(result_label)
+    if sp >= 0:
+        codigo_assembly.append(f"    LDR r0, ={result_label}")
+        codigo_assembly.append(f"    VSTR d{sp}, [r0]")
+    codigo_assembly.append("")
+
+
+def gerar_arquivo_assembly(expressoes: list[str]) -> str:
+    codigo_assembly = []
+    secao_dados = []
+    memorias_labels = {}
+    resultados_labels = []
+
+    codigo_assembly.append(".global _start")
+    codigo_assembly.append("")
+    codigo_assembly.append("_start:")
+
+    for i, expressao in enumerate(expressoes, start=1):
+        try:
+            tokens = parseExpressao(expressao)
+            gerarAssembly(
+                tokens=tokens,
+                codigo_assembly=codigo_assembly,
+                indice_linha=i,
+                secao_dados=secao_dados,
+                memorias_labels=memorias_labels,
+                resultados_labels=resultados_labels,
+            )
+        except ValueError as e:
+            codigo_assembly.append(f"    @ ERRO na linha {i}: {e}")
+            resultados_labels.append(None)
+
+    codigo_assembly.append("_halt:")
+    codigo_assembly.append("    B _halt")
+    codigo_assembly.append("")
+    codigo_assembly.append(".data")
+    codigo_assembly.extend(secao_dados)
+
+    return "\n".join(codigo_assembly)
+
+
+def lerArquivo(nome_arquivo: str, linhas: list) -> None:
+    """
+    Lê o arquivo de entrada, preenchendo a lista com as expressões não-vazias.
+    Levanta FileNotFoundError com mensagem clara se o arquivo não existir.
+    """
+    try:
+        with open(nome_arquivo, "r") as arquivo:
+            for linha in arquivo:
+                linha = linha.strip()
+                if linha:
+                    linhas.append(linha)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Arquivo não encontrado: {nome_arquivo}")
+    except PermissionError:
+        raise PermissionError(f"Sem permissão para ler o arquivo: {nome_arquivo}")
+    except OSError as e:
+        raise OSError(f"Erro ao abrir o arquivo: {e}")
+
+
+def gerarAssembly(tokens: list[Token], codigo_assembly: list[str],
+                  indice_linha: int, secao_dados: list[str],
+                  memorias_labels: dict, resultados_labels: list) -> None:
+    """
+    Gera instruções ARMv7 para uma expressão RPN representada por tokens.
+    Modifica codigo_assembly e secao_dados in-place.
+
+    Estratégia: alocação estática de registradores VFP (d0-d15) como pilha
+    de compilação — equivalente ao std::stack<float> do avaliador em C++.
+    """
+    sp = -1          # ponteiro virtual da pilha (índice do registrador d)
+    const_idx = [0]  # contador de constantes para gerar labels únicos
+    pow_idx = [0]    # contador de labels para loops de potenciação
+
+    def add_constante(valor: float) -> str:
+        label = f"_c{indice_linha}_{const_idx[0]}"
+        const_idx[0] += 1
+        secao_dados.append(f".align 8")
+        secao_dados.append(f"{label}: .double {valor:.17g}")
+        return label
+
+    tokens_efetivos = [t for t in tokens if t.tipo != "PARENTESE"]
+    codigo_assembly.append(f"    @ --- Linha {indice_linha} ---")
+
+    for i, token in enumerate(tokens_efetivos):
+        if token.tipo == "NUMERO":
+            sp += 1
+            label = add_constante(float(token.valor))
+            codigo_assembly.append(f"    LDR r0, ={label}")
+            codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+
+        elif token.tipo == "OPERADOR":
+            rhs = sp
+            lhs = sp - 1
+            sp -= 1
+            op = token.valor
+
+            if op == "+":
+                codigo_assembly.append(f"    VADD.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "-":
+                codigo_assembly.append(f"    VSUB.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "*":
+                codigo_assembly.append(f"    VMUL.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "/":
+                codigo_assembly.append(f"    VDIV.F64 d{lhs}, d{lhs}, d{rhs}")
+            elif op == "//":
+                # Divisão inteira com truncamento em direção a zero (comportamento C++)
+                codigo_assembly.extend([
+                    f"    VCVT.S32.F64 s0, d{lhs}",
+                    f"    VCVT.S32.F64 s2, d{rhs}",
+                    f"    VMOV r0, s0",
+                    f"    VMOV r1, s2",
+                    f"    SDIV r0, r0, r1",
+                    f"    VMOV s0, r0",
+                    f"    VCVT.F64.S32 d{lhs}, s0",
+                ])
+            elif op == "%":
+                # Resto com sinal do dividendo (comportamento C++)
+                codigo_assembly.extend([
+                    f"    VCVT.S32.F64 s0, d{lhs}",
+                    f"    VCVT.S32.F64 s2, d{rhs}",
+                    f"    VMOV r0, s0",
+                    f"    VMOV r1, s2",
+                    f"    SDIV r2, r0, r1",
+                    f"    MUL r2, r2, r1",
+                    f"    SUB r0, r0, r2",
+                    f"    VMOV s0, r0",
+                    f"    VCVT.F64.S32 d{lhs}, s0",
+                ])
+            elif op == "^":
+                # Potenciação via loop (assume expoente inteiro >= 0)
+                label_1 = add_constante(1.0)
+                lbl_loop = f"_pow_loop_{indice_linha}_{pow_idx[0]}"
+                lbl_done = f"_pow_done_{indice_linha}_{pow_idx[0]}"
+                pow_idx[0] += 1
+                codigo_assembly.extend([
+                    f"    @ Potenciacao: d{lhs} ^ d{rhs}",
+                    f"    VCVT.S32.F64 s4, d{rhs}",
+                    f"    VMOV r2, s4",
+                    f"    LDR r0, ={label_1}",
+                    f"    VLDR d{rhs}, [r0]",
+                    f"{lbl_loop}:",
+                    f"    CMP r2, #0",
+                    f"    BEQ {lbl_done}",
+                    f"    VMUL.F64 d{rhs}, d{rhs}, d{lhs}",
+                    f"    SUB r2, r2, #1",
+                    f"    B {lbl_loop}",
+                    f"{lbl_done}:",
+                    f"    VMOV.F64 d{lhs}, d{rhs}",
+                ])
+
+        elif token.tipo == "MEMORIA":
+            nome = token.valor
+            eh_ultimo = i == len(tokens_efetivos) - 1
+
+            if nome not in memorias_labels:
+                label = f"_mem_{nome}"
+                memorias_labels[nome] = label
+                secao_dados.append(f".align 8")
+                secao_dados.append(f"{label}: .double 0.0")
+
+            label = memorias_labels[nome]
+
+            if eh_ultimo and sp >= 0:
+                # Salvar em memória: (V MEM)
+                codigo_assembly.append(f"    @ Salvar em {nome}")
+                codigo_assembly.append(f"    LDR r0, ={label}")
+                codigo_assembly.append(f"    VSTR d{sp}, [r0]")
+            else:
+                # Carregar da memória: (MEM)
+                sp += 1
+                codigo_assembly.append(f"    @ Carregar {nome}")
+                codigo_assembly.append(f"    LDR r0, ={label}")
+                codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+
+        elif token.tipo == "KEYWORD_RES":
+            # N já foi empilhado pelo NUMERO anterior; substituímos pelo resultado histórico
+            n = int(float(tokens_efetivos[i - 1].valor))
+            idx_alvo = len(resultados_labels) - n
+            if 0 <= idx_alvo < len(resultados_labels):
+                label_res = resultados_labels[idx_alvo]
+                codigo_assembly.append(f"    @ RES {n}: resultado da linha {idx_alvo + 1}")
+                codigo_assembly.append(f"    LDR r0, ={label_res}")
+                codigo_assembly.append(f"    VLDR d{sp}, [r0]")
+            else:
+                codigo_assembly.append(f"    @ ERRO: RES {n} fora do intervalo")
+
+    # Armazenar resultado da linha para uso futuro por RES
+    result_label = f"_result_{indice_linha}"
+    secao_dados.append(f".align 8")
+    secao_dados.append(f"{result_label}: .space 8")
+    resultados_labels.append(result_label)
+    if sp >= 0:
+        codigo_assembly.append(f"    LDR r0, ={result_label}")
+        codigo_assembly.append(f"    VSTR d{sp}, [r0]")
+    codigo_assembly.append("")
+
+
+def gerar_arquivo_assembly(expressoes: list[str]) -> str:
+    """
+    Gera um arquivo Assembly ARMv7 completo a partir de uma lista de expressões RPN.
+    Retorna o conteúdo do arquivo como string.
+    """
+    codigo_assembly = []
+    secao_dados = []
+    memorias_labels = {}
+    resultados_labels = []
+
+    codigo_assembly.append(".global _start")
+    codigo_assembly.append("")
+    codigo_assembly.append("_start:")
+
+    for i, expressao in enumerate(expressoes, start=1):
+        try:
+            tokens = parseExpressao(expressao)
+            gerarAssembly(
+                tokens=tokens,
+                codigo_assembly=codigo_assembly,
+                indice_linha=i,
+                secao_dados=secao_dados,
+                memorias_labels=memorias_labels,
+                resultados_labels=resultados_labels,
+            )
+        except ValueError as e:
+            codigo_assembly.append(f"    @ ERRO na linha {i}: {e}")
+            resultados_labels.append(None)
+
+    codigo_assembly.append("_halt:")
+    codigo_assembly.append("    B _halt")
+    codigo_assembly.append("")
+    codigo_assembly.append(".data")
+    codigo_assembly.extend(secao_dados)
+
+    return "\n".join(codigo_assembly)
+
+
 def main():
     if len(sys.argv) < 2:
         print("Uso: python programa.py <arquivo.txt>")
+        print("     python programa.py <arquivo.txt> --assembly [saida.s]")
         sys.exit(1)
 
     caminho_arquivo = sys.argv[1]
+    gerar_asm = "--assembly" in sys.argv
+    saida_asm = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--assembly" and i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--")), "saida.s")
 
+    linhas = []
     try:
-        expressoes = ler_expressoes(caminho_arquivo)
-    except FileNotFoundError:
-        print(f"Erro: arquivo não encontrado: {caminho_arquivo}")
+        lerArquivo(caminho_arquivo, linhas)
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        print(f"Erro: {e}")
         sys.exit(1)
+
+    if gerar_asm:
+        assembly = gerar_arquivo_assembly(linhas)
+        with open(saida_asm, "w") as f:
+            f.write(assembly)
+        print(f"Assembly gerado em: {saida_asm}")
+        return
 
     estado_programa = EstadoPrograma()
 
-    for i, expressao in enumerate(expressoes, start=1):
+    for i, expressao in enumerate(linhas, start=1):
         try:
             resultado = executarExpressao(expressao, estado_programa)
             estado_programa.historico_resultados.append(resultado)
