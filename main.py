@@ -1,4 +1,5 @@
 import sys
+import math
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -47,6 +48,8 @@ def tratar_parenteses(linha: str) -> str:
                 raise ValueError(f"Parêntese fechado sem abertura na posição {posicao}")
             pilha_parenteses.pop()
             resultado.append(" ) ")
+        else:
+            resultado.append(caractere)
 
     if pilha_parenteses:
         posicao_abertura = pilha_parenteses[-1]
@@ -207,6 +210,7 @@ def estado_identificador(contexto: ContextoLexer, tokens: list[Token]):
     return estado_inicial
 
 def parseExpressao(linha: str) -> list[Token]:
+    linha = tratar_parenteses(linha)
     contexto = ContextoLexer(linha=linha)
     tokens = []
 
@@ -217,10 +221,8 @@ def parseExpressao(linha: str) -> list[Token]:
 
     return tokens
 
-def converter_numero(valor: str):
-    if "." in valor:
-        return float(valor)
-    return int(valor)
+def converter_numero(valor: str) -> float:
+    return float(valor)
 
 def aplicar_operador(operador: str, esquerdo, direito):
     if operador == "+":
@@ -232,9 +234,9 @@ def aplicar_operador(operador: str, esquerdo, direito):
     if operador == "/":
         return esquerdo / direito
     if operador == "//":
-        return esquerdo // direito
+        return float(math.trunc(esquerdo / direito))
     if operador == "%":
-        return esquerdo % direito
+        return math.fmod(esquerdo, direito)
     if operador == "^":
         return esquerdo ** direito
 
