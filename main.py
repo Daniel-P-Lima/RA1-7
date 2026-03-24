@@ -1,6 +1,11 @@
+# Grupo: RA1-7
+# Integrantes:
+#   Daniel Pereira Lima - GitHub: Daniel-P-Lima
+
 import sys
 import math
 import io
+import json
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -504,6 +509,23 @@ def gerar_arquivo_assembly(expressoes: list[str]) -> str:
 
     return "\n".join(codigo_assembly)
 
+def salvar_tokens(tokens_por_linha: list[list[Token]], caminho_saida: str = "tokens.json") -> None:
+    """
+    Salva os tokens gerados pelo analisador léxico em arquivo JSON.
+    Apenas os tokens da última execução são mantidos (arquivo sobrescrito).
+    Formato: lista de objetos {linha, tokens: [{tipo, valor}, ...]}
+    """
+    dados = [
+        {
+            "linha": i + 1,
+            "tokens": [{"tipo": t.tipo, "valor": t.valor} for t in tokens]
+        }
+        for i, tokens in enumerate(tokens_por_linha)
+    ]
+    with open(caminho_saida, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+
+
 def formatar_resultado(valor: Union[float, None]) -> str:
     if valor is None:
         return "ERRO"
@@ -735,17 +757,22 @@ def main():
     estado_programa = EstadoPrograma()
     resultados = []
     erros = {}
+    tokens_por_linha = []
 
     for i, expressao in enumerate(linhas, start=1):
         try:
+            tokens = parseExpressao(expressao)
+            tokens_por_linha.append(tokens)
             resultado = executarExpressao(expressao, estado_programa)
             estado_programa.historico_resultados.append(resultado)
             resultados.append(resultado)
         except ValueError as erro:
+            tokens_por_linha.append([])
             estado_programa.historico_resultados.append(None)
             resultados.append(None)
             erros[i] = str(erro)
 
+    salvar_tokens(tokens_por_linha)
     exibirResultados(resultados, erros)
 
 if __name__ == "__main__":
