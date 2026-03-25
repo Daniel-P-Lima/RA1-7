@@ -813,14 +813,14 @@ def main():
     if len(sys.argv) == 2 and sys.argv[1] == "--testes":
         executar_testes()
         return
+
     if len(sys.argv) < 2:
-        print("Uso: python programa.py <arquivo.txt>")
-        print("     python programa.py <arquivo.txt> --assembly [saida.s]")
+        print("Uso: python3 main.py <arquivo.txt> [saida.s]")
+        print("     python3 main.py --testes")
         sys.exit(1)
 
     caminho_arquivo = sys.argv[1]
-    gerar_asm = "--assembly" in sys.argv
-    saida_asm = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--assembly" and i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--")), "saida.s")
+    saida_asm = sys.argv[2] if len(sys.argv) > 2 else "saida.s"
 
     linhas = []
     try:
@@ -829,30 +829,18 @@ def main():
         print(f"Erro: {e}")
         sys.exit(1)
 
-    tokens_por_linha = [parseExpressao(l) for l in linhas]
+    tokens_por_linha = []
+    for l in linhas:
+        try:
+            tokens_por_linha.append(parseExpressao(l))
+        except ValueError:
+            tokens_por_linha.append([])
     salvar_tokens(tokens_por_linha)
 
-    if gerar_asm:
-        assembly = gerar_arquivo_assembly(linhas)
-        with open(saida_asm, "w") as f:
-            f.write(assembly)
-        print(f"Assembly gerado em: {saida_asm}")
-        return
-
-    estado_programa = EstadoPrograma()
-    resultados = []
-    erros = {}
-
-    for i, expressao in enumerate(linhas, start=1):
-        try:
-            resultado = executarExpressao(expressao, estado_programa)
-            estado_programa.historico_resultados.append(resultado)
-            resultados.append(resultado)
-        except ValueError as erro:
-            estado_programa.historico_resultados.append(None)
-            resultados.append(None)
-            erros[i] = str(erro)
-    exibirResultados(resultados, erros)
+    assembly = gerar_arquivo_assembly(linhas)
+    with open(saida_asm, "w") as f:
+        f.write(assembly)
+    print(f"Assembly gerado em: {saida_asm}")
 
 if __name__ == "__main__":
     main()
