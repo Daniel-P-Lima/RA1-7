@@ -17,7 +17,7 @@
 
 Analisador léxico de expressões matemáticas em **notação polonesa reversa (RPN)** com gerador de código **Assembly ARMv7** compatível com o simulador CPulator-ARMv7 DEC1-SOC (v16.1).
 
-O programa lê um arquivo de texto com expressões RPN (uma por linha), tokeniza cada expressão usando um **Autômato Finito Determinístico (AFD)**, avalia os resultados e opcionalmente traduz o programa para Assembly ARMv7.
+O programa lê um arquivo de texto com expressões RPN (uma por linha), tokeniza cada expressão usando um **Autômato Finito Determinístico (AFD)**, avalia os resultados e traduz o programa para Assembly ARMv7.
 
 ---
 
