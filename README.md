@@ -45,54 +45,29 @@ O programa lê um arquivo de texto com expressões RPN (uma por linha), tokeniza
 
 ## Como Executar
 
-### Modo normal — avalia expressões e exibe resultados
+### Modo principal — gera código Assembly ARMv7
 
 ```bash
-python3 main.py <arquivo.txt>
+python3 main.py <arquivo.txt> [saida.s]
 ```
 
 Exemplo:
 
 ```bash
-python3 main.py teste1.txt
+python3 main.py teste1.txt teste1.s
 ```
 
-Saída:
-
-```
-Linha 1: 7
-Linha 2: ERRO -> Expressão RPN inválida: operador '/' sem operandos suficientes
-Linha 3: 46.3
-...
-```
-
-A cada execução, os tokens gerados pelo analisador léxico são salvos automaticamente em `tokens.json`.
+Lê o arquivo, realiza a análise léxica, salva os tokens em `tokens.json` e gera o código Assembly no arquivo indicado (padrão: `saida.s`). O arquivo `.s` gerado é compatível com o CPulator-ARMv7 DEC1-SOC (v16.1) e pode ser colado diretamente no simulador.
 
 ---
 
-### Modo Assembly — gera código ARMv7
-
-```bash
-python3 main.py <arquivo.txt> --assembly [saida.s]
-```
-
-Exemplo:
-
-```bash
-python3 main.py teste1.txt --assembly teste1.s
-```
-
-O arquivo `.s` gerado é compatível com o CPulator-ARMv7 DEC1-SOC (v16.1) e pode ser colado diretamente no simulador.
-
----
-
-### Modo testes — executa a suíte de testes automáticos
+### Modo testes — valida o analisador léxico e as funções do compilador
 
 ```bash
 python3 main.py --testes
 ```
 
-Cobre: AFD, todos os operadores, memória (`MEM`), histórico (`RES`), `exibirResultados` e programa completo com 10 linhas.
+Executa a suíte de testes automáticos. Cobre: AFD, todos os operadores, memória (`MEM`), histórico (`RES`), `exibirResultados` e programa completo com 10 linhas.
 
 ---
 
