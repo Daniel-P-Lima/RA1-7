@@ -1,3 +1,6 @@
+# Instituicao: PUCPR - Pontificia Universidade Catolica do Parana
+# Disciplina: Construcao de Interpretadores
+# Professor: Frank Alcantara
 # Grupo: RA1-7
 # Integrantes:
 #   Daniel Pereira Lima - GitHub: Daniel-P-Lima
@@ -473,6 +476,9 @@ def gerarAssembly(tokens: list[Token], codigo_assembly: list[str], indice_linha:
     if sp >= 0:
         codigo_assembly.append(f"    LDR r0, ={result_label}")
         codigo_assembly.append(f"    VSTR d{sp}, [r0]")
+        codigo_assembly.append(f"    VCVT.S32.F64 s0, d{sp}    @ truncar resultado para inteiro")
+        codigo_assembly.append(f"    VMOV r1, s0")
+        codigo_assembly.append(f"    BL _show_hex")
     codigo_assembly.append("")
 
 
@@ -482,9 +488,11 @@ def gerar_arquivo_assembly(expressoes: list[str]) -> str:
     memorias_labels = {}
     resultados_labels = []
 
+    codigo_assembly.append(".arch_extension idiv   @ habilita SDIV em ARM mode (Cortex-A9)")
     codigo_assembly.append(".global _start")
     codigo_assembly.append("")
     codigo_assembly.append("_start:")
+    codigo_assembly.append("    LDR sp, =0x3FFFFFFC    @ inicializar pilha (fim da SDRAM)")
 
     for i, expressao in enumerate(expressoes, start=1):
         try:
@@ -504,7 +512,81 @@ def gerar_arquivo_assembly(expressoes: list[str]) -> str:
     codigo_assembly.append("_halt:")
     codigo_assembly.append("    B _halt")
     codigo_assembly.append("")
+    codigo_assembly.append("@ Subrotina: exibe inteiro com sinal em HEX0-3 e LEDR")
+    codigo_assembly.append("@ Entrada: r1 = valor inteiro com sinal (parte inteira do resultado)")
+    codigo_assembly.append("@ HEX mostra parte inteira; LEDR mostra bits brutos")
+    codigo_assembly.append("_show_hex:")
+    codigo_assembly.append("    PUSH {r2, r3, r4, r5, r6, lr}")
+    codigo_assembly.append("    LDR r0, =0xFF200000        @ LEDR")
+    codigo_assembly.append("    STR r1, [r0]")
+    codigo_assembly.append("    LDR r0, =0xFF200030        @ HEX4-5")
+    codigo_assembly.append("    CMP r1, #0")
+    codigo_assembly.append("    BPL _show_hex_pos")
+    codigo_assembly.append("    MOV r2, #0x40              @ sinal de menos no HEX5")
+    codigo_assembly.append("    LSL r2, r2, #8")
+    codigo_assembly.append("    STR r2, [r0]")
+    codigo_assembly.append("    NEG r1, r1")
+    codigo_assembly.append("    B _show_hex_digits")
+    codigo_assembly.append("_show_hex_pos:")
+    codigo_assembly.append("    MOV r2, #0")
+    codigo_assembly.append("    STR r2, [r0]               @ apaga HEX4-5")
+    codigo_assembly.append("_show_hex_digits:")
+    codigo_assembly.append("    LDR r5, =_seg7_table")
+    codigo_assembly.append("    MOV r6, #0                 @ palavra acumuladora dos segmentos")
+    codigo_assembly.append("    MOV r2, #10")
+    codigo_assembly.append("    @ HEX0: digito das unidades")
+    codigo_assembly.append("    SDIV r3, r1, r2")
+    codigo_assembly.append("    MUL r4, r3, r2")
+    codigo_assembly.append("    SUB r4, r1, r4")
+    codigo_assembly.append("    LDRB r4, [r5, r4]")
+    codigo_assembly.append("    ORR r6, r6, r4")
+    codigo_assembly.append("    MOV r1, r3")
+    codigo_assembly.append("    @ HEX1: digito das dezenas")
+    codigo_assembly.append("    SDIV r3, r1, r2")
+    codigo_assembly.append("    MUL r4, r3, r2")
+    codigo_assembly.append("    SUB r4, r1, r4")
+    codigo_assembly.append("    LDRB r4, [r5, r4]")
+    codigo_assembly.append("    LSL r4, r4, #8")
+    codigo_assembly.append("    ORR r6, r6, r4")
+    codigo_assembly.append("    MOV r1, r3")
+    codigo_assembly.append("    @ HEX2: digito das centenas")
+    codigo_assembly.append("    SDIV r3, r1, r2")
+    codigo_assembly.append("    MUL r4, r3, r2")
+    codigo_assembly.append("    SUB r4, r1, r4")
+    codigo_assembly.append("    LDRB r4, [r5, r4]")
+    codigo_assembly.append("    LSL r4, r4, #16")
+    codigo_assembly.append("    ORR r6, r6, r4")
+    codigo_assembly.append("    MOV r1, r3")
+    codigo_assembly.append("    @ HEX3: digito das centenas")
+    codigo_assembly.append("    SDIV r3, r1, r2")
+    codigo_assembly.append("    MUL r4, r3, r2")
+    codigo_assembly.append("    SUB r4, r1, r4")
+    codigo_assembly.append("    LDRB r4, [r5, r4]")
+    codigo_assembly.append("    LSL r4, r4, #24")
+    codigo_assembly.append("    ORR r6, r6, r4")
+    codigo_assembly.append("    @ Supressao de zeros a esquerda")
+    codigo_assembly.append("    @ Se HEX3 == segmento '0' (0x3F), apaga")
+    codigo_assembly.append("    LSR r3, r6, #24")
+    codigo_assembly.append("    CMP r3, #0x3F")
+    codigo_assembly.append("    BNE _no_blank_hex3")
+    codigo_assembly.append("    BIC r6, r6, #0xFF000000")
+    codigo_assembly.append("_no_blank_hex3:")
+    codigo_assembly.append("    @ Se HEX3 apagado E HEX2 == '0', apaga HEX2 tambem")
+    codigo_assembly.append("    TST r6, #0xFF000000")
+    codigo_assembly.append("    BNE _no_blank_hex2")
+    codigo_assembly.append("    LSR r3, r6, #16")
+    codigo_assembly.append("    AND r3, r3, #0xFF")
+    codigo_assembly.append("    CMP r3, #0x3F")
+    codigo_assembly.append("    BNE _no_blank_hex2")
+    codigo_assembly.append("    BIC r6, r6, #0x00FF0000")
+    codigo_assembly.append("_no_blank_hex2:")
+    codigo_assembly.append("    LDR r0, =0xFF200020        @ HEX0-3")
+    codigo_assembly.append("    STR r6, [r0]")
+    codigo_assembly.append("    POP {r2, r3, r4, r5, r6, pc}")
+    codigo_assembly.append("")
     codigo_assembly.append(".data")
+    codigo_assembly.append("_seg7_table:")
+    codigo_assembly.append("    .byte 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F")
     codigo_assembly.extend(secao_dados)
 
     return "\n".join(codigo_assembly)
@@ -747,6 +829,9 @@ def main():
         print(f"Erro: {e}")
         sys.exit(1)
 
+    tokens_por_linha = [parseExpressao(l) for l in linhas]
+    salvar_tokens(tokens_por_linha)
+
     if gerar_asm:
         assembly = gerar_arquivo_assembly(linhas)
         with open(saida_asm, "w") as f:
@@ -757,22 +842,16 @@ def main():
     estado_programa = EstadoPrograma()
     resultados = []
     erros = {}
-    tokens_por_linha = []
 
     for i, expressao in enumerate(linhas, start=1):
         try:
-            tokens = parseExpressao(expressao)
-            tokens_por_linha.append(tokens)
             resultado = executarExpressao(expressao, estado_programa)
             estado_programa.historico_resultados.append(resultado)
             resultados.append(resultado)
         except ValueError as erro:
-            tokens_por_linha.append([])
             estado_programa.historico_resultados.append(None)
             resultados.append(None)
             erros[i] = str(erro)
-
-    salvar_tokens(tokens_por_linha)
     exibirResultados(resultados, erros)
 
 if __name__ == "__main__":

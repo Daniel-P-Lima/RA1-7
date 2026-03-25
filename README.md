@@ -1,7 +1,9 @@
 # RA1-7 — Analisador Léxico e Gerador de Assembly ARMv7
 
-**Grupo:** RA1-7
+**Instituição:** PUCPR — Pontifícia Universidade Católica do Paraná
 **Disciplina:** Construção de Interpretadores
+**Professor:** Frank Alcantara
+**Grupo:** RA1-7
 **Integrantes:**
 - Daniel Pereira Lima — GitHub: [Daniel-P-Lima](https://github.com/Daniel-P-Lima)
 
