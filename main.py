@@ -829,6 +829,9 @@ def main():
         print(f"Erro: {e}")
         sys.exit(1)
 
+    tokens_por_linha = [parseExpressao(l) for l in linhas]
+    salvar_tokens(tokens_por_linha)
+
     if gerar_asm:
         assembly = gerar_arquivo_assembly(linhas)
         with open(saida_asm, "w") as f:
@@ -839,22 +842,16 @@ def main():
     estado_programa = EstadoPrograma()
     resultados = []
     erros = {}
-    tokens_por_linha = []
 
     for i, expressao in enumerate(linhas, start=1):
         try:
-            tokens = parseExpressao(expressao)
-            tokens_por_linha.append(tokens)
             resultado = executarExpressao(expressao, estado_programa)
             estado_programa.historico_resultados.append(resultado)
             resultados.append(resultado)
         except ValueError as erro:
-            tokens_por_linha.append([])
             estado_programa.historico_resultados.append(None)
             resultados.append(None)
             erros[i] = str(erro)
-
-    salvar_tokens(tokens_por_linha)
     exibirResultados(resultados, erros)
 
 if __name__ == "__main__":
